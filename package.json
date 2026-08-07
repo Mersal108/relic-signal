@@ -16,7 +16,8 @@
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "warframe-items": "^1.1269.87"
   },
   "devDependencies": {
     "@types/node": "26.2.0",

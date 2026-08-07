@@ -1,12 +1,11 @@
-const RELIC_DATA = 'https://unpkg.com/warframe-items@latest/data/json/Relics.json'
+import Items from 'warframe-items'
+
 const refinements = ['Intact', 'Exceptional', 'Flawless', 'Radiant']
+const relicItems = new Items({ category: ['Relics'], i18n: false })
 
 export async function GET() {
   try {
-    const upstream = await fetch(RELIC_DATA, { next: { revalidate: 21600 } })
-    if (!upstream.ok) throw new Error('Upstream rejected request')
-    const items = await upstream.json()
-    const relics = items
+    const relics = relicItems
       .filter((item: { name?: string }) => refinements.some(value => item.name?.endsWith(value)))
       .map((item: { name: string; vaulted?: boolean; rewards?: unknown[] }) => {
         const refinement = refinements.find(value => item.name.endsWith(value))!

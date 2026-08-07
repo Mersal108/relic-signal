@@ -16,7 +16,7 @@ An open-source Warframe relic intelligence dashboard combining live PC crossplay
 - Next.js App Router and React
 - TypeScript
 - Server-side Route Handlers for upstream API isolation and caching
-- Warframe.market v2 API and WFCD WarframeStatus
+- Warframe.market v2 API, WFCD WarframeStatus, and the versioned `warframe-items` dataset
 
 ## Local development
 
