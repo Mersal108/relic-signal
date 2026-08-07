@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest an idea or improvement for Relic Signal.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What's missing or awkward today? Who runs into this?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to see happen? Sketch the UI or API shape if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you thought about, and why you'd prefer this one.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
