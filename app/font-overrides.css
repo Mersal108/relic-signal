@@ -1,0 +1,6 @@
+body { font-family: var(--font-mono), monospace; }
+.brand, h1, .hero > p, .hero-stats strong, .world-card strong,
+.section-heading h2, .relic-list > button b, .detail-head h3,
+.ev-card strong, .reward-row b, .price, .empty-state h3 {
+  font-family: var(--font-display), sans-serif;
+}
