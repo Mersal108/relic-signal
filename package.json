@@ -5,6 +5,8 @@
   "description": "Live Warframe relic prices and world-state intelligence.",
   "license": "MIT",
   "repository": "https://github.com/Mersal108/relic-signal",
+  "bugs": "https://github.com/Mersal108/relic-signal/issues",
+  "homepage": "https://github.com/Mersal108/relic-signal#readme",
   "type": "module",
   "scripts": {
     "dev": "next dev",

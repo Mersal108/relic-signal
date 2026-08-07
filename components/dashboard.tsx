@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowUpRight, ChevronRight, CircleDot, Clock3, Coins, ExternalLink, LoaderCircle, LockKeyhole, Radio, RefreshCw, Search, Shield, Sparkles, Swords, X } from 'lucide-react'
 
 type MarketRef = { id: string; urlName: string }
@@ -44,45 +44,56 @@ export function Dashboard() {
   const [loadingRelics, setLoadingRelics] = useState(true)
   const [relicError, setRelicError] = useState(false)
   const [now, setNow] = useState<number | null>(null)
-  const requestedQuotes = useRef(new Set<string>())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
-    return () => window.clearInterval(timer)
-  }, [])
 
   useEffect(() => {
     let alive = true
-    Promise.all([
-      fetch(`${STATUS_API}/relics`).then(r => { if (!r.ok) throw new Error('items'); return r.json() }),
-      fetch(`${STATUS_API}/world`).then(r => { if (!r.ok) throw new Error('world'); return r.json() }),
-    ]).then(([items, state]: [RelicRaw[], WorldState]) => {
+    fetch(`${STATUS_API}/relics`).then(r => { if (!r.ok) throw new Error('items'); return r.json() }).then((items: RelicRaw[]) => {
       if (!alive) return
       const normalized = items as Relic[]
       setRelics(normalized)
-      setWorld(state)
       setSelected(normalized.find(r => r.baseName === 'Axi A1' && r.refinement === 'Intact') || normalized[0] || null)
       setLoadingRelics(false)
     }).catch(() => { if (alive) { setLoadingRelics(false); setRelicError(true) } })
     return () => { alive = false }
   }, [])
 
+  // World state is server-cached with a 60s revalidate window (app/api/world/route.ts),
+  // so polling on the same cadence keeps this live without exceeding upstream limits.
+  useEffect(() => {
+    let alive = true
+    const load = () => fetch(`${STATUS_API}/world`).then(r => { if (!r.ok) throw new Error('world'); return r.json() })
+      .then((state: WorldState) => { if (alive) setWorld(state) }).catch(() => {})
+    load()
+    const timer = window.setInterval(load, 60_000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  // Market quotes share the same 60s server-side cache (app/api/market/[slug]/route.ts).
+  // warframe.market's public API limit is 3 req/s; refetching per-slug at most once per
+  // 60s keeps this dashboard far under that even with multiple tabs open.
   useEffect(() => {
     if (!selected?.rewards) return
+    let alive = true
     const slugs = [...new Set(selected.rewards.map(r => r.item.warframeMarket?.urlName).filter(Boolean))] as string[]
-    const missing = slugs.filter(slug => !requestedQuotes.current.has(slug))
-    if (!missing.length) return
-    missing.forEach(slug => requestedQuotes.current.add(slug))
-    missing.forEach(async slug => {
+    if (!slugs.length) return
+    const load = () => slugs.forEach(async slug => {
       try {
         const res = await fetch(`${MARKET_API}/${slug}`)
         if (!res.ok) throw new Error('quote')
         const json = await res.json()
-        setQuotes(old => ({ ...old, [slug]: json.data }))
+        if (alive) setQuotes(old => ({ ...old, [slug]: json.data }))
       } catch {
-        setQuotes(old => ({ ...old, [slug]: { sell: [], buy: [], error: true } }))
+        if (alive) setQuotes(old => ({ ...old, [slug]: { sell: [], buy: [], error: true } }))
       }
     })
+    load()
+    const timer = window.setInterval(load, 60_000)
+    return () => { alive = false; window.clearInterval(timer) }
   }, [selected])
 
   const catalog = useMemo(() => {
@@ -108,7 +119,7 @@ export function Dashboard() {
     <div className="grain" />
     <header className="topbar">
       <a className="brand" href="#top" aria-label="Relic Signal home"><span className="brand-mark"><Radio size={18}/></span><span>RELIC<span>SIGNAL</span></span></a>
-      <nav><a href="#catalog">Relics</a><a href="#world">World state</a><a href="https://warframe.market" target="_blank">Market <ExternalLink size={12}/></a></nav>
+      <nav><a href="#catalog">Relics</a><a href="#world">World state</a><a href="https://warframe.market" target="_blank" rel="noopener noreferrer">Market <ExternalLink size={12}/></a></nav>
       <div className="live-chip"><i /> LIVE · PC CROSSPLAY</div>
     </header>
 
@@ -165,7 +176,7 @@ export function Dashboard() {
                   <div><span className={`rarity-label ${reward.rarity.toLowerCase()}`}>{reward.rarity}</span><b>{reward.chance.toFixed(2)}%</b></div>
                   <div className="price">{quote?.loading ? <LoaderCircle className="spin"/> : buy ? <>{buy}<small>p</small></> : '—'}</div>
                   <div className="price sell">{quote?.loading ? <LoaderCircle className="spin"/> : sell ? <>{sell}<small>p</small></> : '—'}</div>
-                  <div>{slug && <a aria-label={`Open ${reward.item.name} on Warframe Market`} href={`https://warframe.market/items/${slug}`} target="_blank"><ArrowUpRight size={16}/></a>}</div>
+                  <div>{slug && <a aria-label={`Open ${reward.item.name} on Warframe Market`} href={`https://warframe.market/items/${slug}`} target="_blank" rel="noopener noreferrer"><ArrowUpRight size={16}/></a>}</div>
                 </div>)}
               </div>
               <div className="detail-foot"><span><RefreshCw size={13}/> Quotes load live from online PC crossplay orders</span><span>{now ? `Updated ${new Date(now).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}` : 'Live data'}</span></div>
@@ -174,7 +185,7 @@ export function Dashboard() {
         </div>
       </section>
     </main>
-    <footer><div className="brand mini"><span className="brand-mark"><Radio size={14}/></span><span>RELIC<span>SIGNAL</span></span></div><p>Open source under MIT. Not affiliated with Digital Extremes.</p><div><a href="https://github.com/Mersal108/relic-signal" target="_blank">SOURCE</a><a href="https://docs.warframe.market/docs/intro" target="_blank">MARKET API</a><a href="https://github.com/wfcd/warframe-status" target="_blank">WFCD</a></div></footer>
+    <footer><div className="brand mini"><span className="brand-mark"><Radio size={14}/></span><span>RELIC<span>SIGNAL</span></span></div><p>Open source under MIT. Not affiliated with Digital Extremes.</p><div><a href="https://github.com/Mersal108/relic-signal" target="_blank" rel="noopener noreferrer">SOURCE</a><a href="https://docs.warframe.market/docs/intro" target="_blank" rel="noopener noreferrer">MARKET API</a><a href="https://github.com/wfcd/warframe-status" target="_blank" rel="noopener noreferrer">WFCD</a></div></footer>
   </div>
 }
 
