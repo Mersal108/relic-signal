@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Barlow_Condensed, DM_Mono } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 import '@/src/styles.css'
 import './font-overrides.css'
 
@@ -29,5 +30,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, themeColor: '#090c0e' }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" className={`${display.variable} ${mono.variable}`}><body>{children}</body></html>
+  return <html lang="en" className={`${display.variable} ${mono.variable}`}><body>{children}<Analytics /></body></html>
 }
