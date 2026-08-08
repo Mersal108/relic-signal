@@ -44,6 +44,7 @@ export function Dashboard() {
   const [loadingRelics, setLoadingRelics] = useState(true)
   const [relicError, setRelicError] = useState(false)
   const [now, setNow] = useState<number | null>(null)
+  const [sortByPrice, setSortByPrice] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -96,14 +97,66 @@ export function Dashboard() {
     return () => { alive = false; window.clearInterval(timer) }
   }, [selected])
 
-  const catalog = useMemo(() => {
+  // The rarest reward (lowest drop chance) is what mainly drives a relic's resale value,
+  // so pricing sort only needs one quote per relic instead of one per reward.
+  const rarestSlug = (relic: Relic) => relic.rewards?.reduce((best, r) => !best || r.chance < best.chance ? r : best, undefined as Reward | undefined)?.item.warframeMarket?.urlName
+
+  const filteredCatalog = useMemo(() => {
     const map = new Map<string, Relic>()
     relics.filter(r => r.refinement === 'Intact').forEach(r => map.set(r.baseName, r))
     return [...map.values()].filter(r => {
       const matchesSearch = r.baseName.toLowerCase().includes(query.toLowerCase()) || r.rewards?.some(x => x.item.name.toLowerCase().includes(query.toLowerCase()))
       return matchesSearch && (era === 'All' || r.era === era) && (vault === 'all' || (vault === 'vaulted') === Boolean(r.vaulted))
-    }).sort((a, b) => ERAS.indexOf(a.era) - ERAS.indexOf(b.era) || a.baseName.localeCompare(b.baseName))
+    })
   }, [relics, query, era, vault])
+
+  const catalog = useMemo(() => {
+    if (!sortByPrice) return [...filteredCatalog].sort((a, b) => ERAS.indexOf(a.era) - ERAS.indexOf(b.era) || a.baseName.localeCompare(b.baseName))
+    const priceOf = (r: Relic) => { const slug = rarestSlug(r); return slug ? quotes[slug]?.sell?.[0]?.platinum : undefined }
+    return [...filteredCatalog].sort((a, b) => {
+      const pa = priceOf(a); const pb = priceOf(b)
+      if (pa == null && pb == null) return a.baseName.localeCompare(b.baseName)
+      if (pa == null) return 1
+      if (pb == null) return -1
+      return pb - pa
+    })
+  }, [filteredCatalog, sortByPrice, quotes])
+
+  const pricingProgress = useMemo(() => {
+    if (!sortByPrice) return null
+    const slugs = [...new Set(filteredCatalog.slice(0, 180).map(rarestSlug).filter(Boolean))] as string[]
+    const loaded = slugs.filter(s => quotes[s]).length
+    return { loaded, total: slugs.length }
+  }, [sortByPrice, filteredCatalog, quotes])
+
+  // Fetch rarest-reward quotes for the visible catalog when price sorting is enabled. Requests
+  // are paced one at a time with a fixed delay — concurrency alone doesn't bound request *rate*
+  // once responses start resolving quickly, and warframe.market's public limit is 3 req/s.
+  useEffect(() => {
+    if (!sortByPrice) return
+    let alive = true
+    const slugs = [...new Set(filteredCatalog.slice(0, 180).map(rarestSlug).filter(Boolean))] as string[]
+    const missing = slugs.filter(slug => !quotes[slug])
+    if (!missing.length) return
+    const REQUEST_INTERVAL_MS = 400
+    const run = async () => {
+      for (const slug of missing) {
+        if (!alive) return
+        try {
+          const res = await fetch(`${MARKET_API}/${slug}`)
+          if (!res.ok) throw new Error('quote')
+          const json = await res.json()
+          if (alive) setQuotes(old => ({ ...old, [slug]: json.data }))
+        } catch {
+          if (alive) setQuotes(old => ({ ...old, [slug]: { sell: [], buy: [], error: true } }))
+        }
+        await new Promise(resolve => setTimeout(resolve, REQUEST_INTERVAL_MS))
+      }
+    }
+    run()
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortByPrice, filteredCatalog])
 
   const selectedRefinements = selected ? REFINEMENTS.map(name => relics.find(r => r.baseName === selected.baseName && r.refinement === name)).filter(Boolean) as Relic[] : []
   const rewardRows = selected?.rewards?.map(reward => {
@@ -154,11 +207,17 @@ export function Dashboard() {
             <label className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search relic or reward..." />{query && <button onClick={() => setQuery('')} aria-label="Clear search"><X size={15}/></button>}</label>
             <div className="filter-block"><span>ERA</span><div className="segmented">{['All', ...ERAS].map(v => <button className={era === v ? 'active' : ''} onClick={() => setEra(v)} key={v}>{v}</button>)}</div></div>
             <div className="filter-block"><span>STATUS</span><div className="status-filters"><button className={vault === 'all' ? 'active' : ''} onClick={() => setVault('all')}>All</button><button className={vault === 'open' ? 'active' : ''} onClick={() => setVault('open')}>Available</button><button className={vault === 'vaulted' ? 'active' : ''} onClick={() => setVault('vaulted')}>Vaulted</button></div></div>
-            <div className="result-count"><b>{catalog.length}</b> matching relics</div>
+            <div className="filter-block"><span>SORT</span><div className="status-filters"><button className={sortByPrice ? 'active' : ''} onClick={() => setSortByPrice(v => !v)}><Coins size={13}/> Highest price</button></div></div>
+            <div className="result-count"><b>{catalog.length}</b> matching relics{sortByPrice && pricingProgress && pricingProgress.loaded < pricingProgress.total && <span className="pricing-status"><LoaderCircle className="spin" size={12}/> Pricing {pricingProgress.loaded}/{pricingProgress.total}</span>}</div>
             <div className="relic-list">
               {loadingRelics && <div className="loading"><LoaderCircle className="spin"/> Decoding archive</div>}
               {relicError && <div className="loading error">Signal lost. Refresh to retry.</div>}
-              {catalog.slice(0, 180).map(relic => <button key={relic.baseName} className={selected?.baseName === relic.baseName ? 'selected' : ''} onClick={() => setSelected(relic)}><i className={`era ${relic.era.toLowerCase()}`}>{relic.era[0]}</i><span><b>{relic.baseName}</b><small>{relic.vaulted ? 'VAULTED' : 'AVAILABLE'}</small></span>{relic.vaulted && <LockKeyhole size={12}/>}<ChevronRight size={15}/></button>)}
+              {catalog.slice(0, 180).map(relic => {
+                const slug = sortByPrice ? rarestSlug(relic) : undefined
+                const quote = slug ? quotes[slug] : undefined
+                const price = quote?.sell?.[0]?.platinum
+                return <button key={relic.baseName} className={selected?.baseName === relic.baseName ? 'selected' : ''} onClick={() => setSelected(relic)}><i className={`era ${relic.era.toLowerCase()}`}>{relic.era[0]}</i><span><b>{relic.baseName}</b><small>{relic.vaulted ? 'VAULTED' : 'AVAILABLE'}</small></span>{sortByPrice && (slug ? <small className="relic-price">{quote ? (price ? `${price}p` : '—') : <LoaderCircle className="spin" size={11}/>}</small> : <small className="relic-price">—</small>)}{relic.vaulted && <LockKeyhole size={12}/>}<ChevronRight size={15}/></button>
+              })}
             </div>
           </aside>
 
